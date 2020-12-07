@@ -4,6 +4,8 @@
 //
 //  Created by Pavlentiy on 02.12.2020.
 //
+//TODO: subview can set size to parents
+//TODO: change setOrigin(delete superview)
 
 import UIKit
 
@@ -219,20 +221,20 @@ class LayoutView: Decodable {
     
     ///(aux) считает generalHeight, а также задает каждой view одинаковое значение высоты
     func calculateIfEqualHeight(items: [LayoutView], spacing: Float){
-        if superview.viewHeight != nil{
+        if self.viewHeight != nil{
             if topIndent != nil{
                 if bottomIndent != nil{
-                    generalHeight = superview.viewHeight! - topIndent! - bottomIndent!
+                    generalHeight = self.viewHeight! - topIndent! - bottomIndent!
                 }else{
-                    generalHeight = superview.viewHeight! - topIndent! - minimumBottomIndent!
+                    generalHeight = self.viewHeight! - topIndent! - minimumBottomIndent!
                     bottomIndent = minimumBottomIndent
                 }
             }else{
                 if bottomIndent != nil{
-                    generalHeight = superview.viewHeight! - bottomIndent! - minimumTopIndent!
+                    generalHeight = self.viewHeight! - bottomIndent! - minimumTopIndent!
                     topIndent = minimumTopIndent
                 }else{
-                    generalHeight = superview.viewHeight! - minimumBottomIndent! - minimumTopIndent!
+                    generalHeight = self.viewHeight! - minimumBottomIndent! - minimumTopIndent!
                     bottomIndent = minimumBottomIndent
                     topIndent = minimumTopIndent
                 }
@@ -252,20 +254,20 @@ class LayoutView: Decodable {
     
     ///(aux) считает generalWidth, а также задает каждой view одинаковое значение ширины
     func calculateIfEqualWidth(items: [LayoutView], spacing: Float){
-        if superview.viewWidth != nil{
+        if self.viewWidth != nil{
             if leftIndent != nil{
                 if rightIndent != nil{
-                    generalWidth = superview.viewWidth! - leftIndent! - rightIndent!
+                    generalWidth = self.viewWidth! - leftIndent! - rightIndent!
                 }else{
-                    generalWidth = superview.viewWidth! - leftIndent! - minimumRightIndent!     //один из путей выхода из проблемы распределения размеров
+                    generalWidth = self.viewWidth! - leftIndent! - minimumRightIndent!     //один из путей выхода из проблемы распределения размеров
                     rightIndent = minimumRightIndent
                 }
             }else{
                 if rightIndent != nil{
-                    generalWidth = superview.viewWidth! - rightIndent! - minimumLeftIndent!
+                    generalWidth = self.viewWidth! - rightIndent! - minimumLeftIndent!
                     leftIndent = minimumLeftIndent
                 }else{
-                    generalWidth = superview.viewWidth! - minimumRightIndent! - minimumLeftIndent!
+                    generalWidth = self.viewWidth! - minimumRightIndent! - minimumLeftIndent!
                     rightIndent = minimumRightIndent
                     leftIndent = minimumLeftIndent
                 }
@@ -334,18 +336,18 @@ class LayoutView: Decodable {
     ///(aux)считает отсупы сверху и сниза, исходя из generalHeight
     func calculateVerticalIndent(){
         if generalHeight != nil{
-            if superview.viewHeight != nil{
-                let heightOfIndent = superview.viewHeight! - generalHeight!        //Ширина отступов (слева и справа вместе)
+            if self.viewHeight != nil{
+                let heightOfIndent = self.viewHeight! - generalHeight!        //Ширина отступов (слева и справа вместе)
                 // зададим значения отступам, зная ширину всего ряда view
                 if topIndent != nil{
                     if bottomIndent != nil{
-                        if bottomIndent! + topIndent! + generalHeight! != superview.viewHeight{
+                        if bottomIndent! + topIndent! + generalHeight! != self.viewHeight{
                             bottomIndent  = nil
                             topIndent   = nil
                             generalHeight = nil
                         }
                     }else{
-                        let supposedBottomIndent = superview.viewHeight! - topIndent! - generalHeight!
+                        let supposedBottomIndent = self.viewHeight! - topIndent! - generalHeight!
                         if supposedBottomIndent >= 0 && minimumBottomIndent! <= supposedBottomIndent{
                             bottomIndent = supposedBottomIndent
                         }else{
@@ -363,7 +365,7 @@ class LayoutView: Decodable {
                             generalHeight = nil
                         }
                     }else{
-                        let supposedTopIndent = superview.viewHeight! - bottomIndent! - generalHeight!
+                        let supposedTopIndent = self.viewHeight! - bottomIndent! - generalHeight!
                         if supposedTopIndent >= 0 && minimumTopIndent! <= supposedTopIndent{
                             topIndent = supposedTopIndent
                         }else{
@@ -380,18 +382,18 @@ class LayoutView: Decodable {
     ///(aux)считает отсупы слева и справа, исходя из generalWidth
     func calculateHorizontalIndent(){
         if generalWidth != nil{
-            if superview.viewWidth != nil{
-                let widthOfIndent = superview.viewWidth! - generalWidth!        //Ширина отступов (слева и справа вместе)
+            if self.viewWidth != nil{
+                let widthOfIndent = self.viewWidth! - generalWidth!        //Ширина отступов (слева и справа вместе)
                 // зададим значения отступам, зная ширину всего ряда view
                 if leftIndent != nil{
                     if rightIndent != nil{
-                        if rightIndent! + leftIndent! + generalWidth! != superview.viewWidth{
+                        if rightIndent! + leftIndent! + generalWidth! != self.viewWidth{
                             rightIndent  = nil
                             leftIndent   = nil
                             generalWidth = nil
                         }
                     }else{
-                        let supposedRightIndent = superview.viewWidth! - leftIndent! - generalWidth!
+                        let supposedRightIndent = self.viewWidth! - leftIndent! - generalWidth!
                         if supposedRightIndent >= 0 && minimumRightIndent! <= supposedRightIndent{
                             rightIndent = supposedRightIndent
                         }else{
@@ -409,7 +411,7 @@ class LayoutView: Decodable {
                             generalWidth = nil
                         }
                     }else{
-                        let supposedLeftIndent = superview.viewWidth! - rightIndent! - generalWidth!
+                        let supposedLeftIndent = self.viewWidth! - rightIndent! - generalWidth!
                         if supposedLeftIndent >= 0 && minimumLeftIndent! <= supposedLeftIndent{
                             leftIndent = supposedLeftIndent
                         }else{
@@ -497,7 +499,7 @@ class LayoutView: Decodable {
             resultStatus = calculateLayout(isRootView: isRootView)
         }
         if resultStatus == .unchanged && isRootView{
-            fatalError("insufficient data")
+            fatalError("not enough values")
         }
         
         return resultStatus
@@ -522,6 +524,13 @@ class LayoutView: Decodable {
             return .found
         }
         return main
+    }
+    
+    func setFrame(){
+        self.uiView.frame = CGRect(x: Double(self.xOrigin!), y: Double(self.yOrigin!), width: Double(self.viewWidth!), height: Double(self.viewHeight!))
+        for view in self.subviews{
+            view.setFrame()
+        }
     }
 }
 
