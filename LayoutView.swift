@@ -73,27 +73,10 @@ class LayoutView: Decodable {
         }
     }
     
-    var generalWidth: Float?            //ширина всего ряда view
-    var generalHeight: Float?           //высота всего ряда view
-    var minimumGeneralWidth: Float?     //минимальная ширина всего ряда view
-    var minimumGeneralHeight: Float?    //минимальная высота всего ряда view
-    
     var viewWidth: Float?               //ширина отдельной view
     var viewHeight: Float?              //высота отдельной view
     var minimumWidth: Float?            //минимальное значение ширины отдельной view
     var minimumHeight: Float?           //минимальное значение высоты отдельной view
-    
-    var leftIndent: Float?              //отступ слева для всего ряда view
-    var rightIndent: Float?             //отступ справа для всего ряда view
-    var topIndent: Float?               //отступ сверху для всего ряда view
-    var bottomIndent: Float?            //отступ снизу для всего ряда view
-    var minimumLeftIndent: Float?       //минимальное значение отступа слева для всего ряда view
-    var minimumRightIndent: Float?      //минимальное значение отступа справа для всего ряда view
-    var minimumTopIndent: Float?        //минимальное значение отступа сверху для всего ряда view
-    var minimumBottomIndent: Float?     //минимальное значение отступа снизу для всего ряда view
-    
-    var horizontalSpacing: Float?
-    var verticalSpacing: Float?
     
     var xOrigin: Float?                 //координаты view по x
     var yOrigin: Float?                 //координаты view по y
@@ -110,6 +93,12 @@ class LayoutView: Decodable {
         return result
     }
     
+    enum AlignGroup {
+        case minEdge // левая или верхняя сторона
+        case center
+        case maxEdge // правая или нижняя сторона
+        case fill // обе стороны
+    }
     
     /// должна задать ширину отдельной view, исходя из полученных данных
     func setWidth(size: SizeRuleSide, from: String = ""){
@@ -154,302 +143,171 @@ class LayoutView: Decodable {
     
     
     ///считает отступы сверху и снизу, опираясь на заданные значения
-    func arrangeVerticaly(items: [LayoutView], top: EdgeOffset, bottom: EdgeOffset, spacing: Float, height: ItemSize){
-        switch top.type {
-        case .constant:
-            topIndent = top.number
-        case .minimum:
-            minimumTopIndent = top.number
+    private func arrangeVerticaly(items: [LayoutView], top: EdgeOffset, bottom: EdgeOffset, spacing: Float, height: ItemSize){
+        var align: AlignGroup
+        if top.type == .minimum && bottom.type == .minimum {
+            align = .center
+        } else if top.type == .minimum {
+            align = .maxEdge
+        } else if bottom.type == .minimum {
+            align = .minEdge
+        } else {
+            align = .fill
         }
         
-        switch bottom.type {
-        case .constant:
-            bottomIndent = bottom.number
-        case .minimum:
-            minimumBottomIndent = bottom.number
+        if align != .minEdge && viewHeight == nil {
+            // мы не можем посчитать верхний отступ и размеры если нет высоты текущей вьюшки
+            return
         }
         
+        let spacingSum = Float(items.count - 1) * spacing
         switch height.type {
         case .constant:
-            generalHeight = height.number
-            calculateGeneralHeightBasedViewsHeight(items: items, spacing: spacing, from: "constant")
-            calculateVerticalIndent()
+            let itemsHeightSum = Float(items.count) * height.number
+            let totalHeight = itemsHeightSum + spacingSum + top.number + bottom.number
+            if align != .fill && viewHeight != nil && viewHeight! < totalHeight {
+                // сумарная высота больше текущей вьюшки, поэтому мы расположим группу как .fill
+                arrangeVerticaly(items: items, top: EdgeOffset(number: top.number, type: .constant), bottom: EdgeOffset(number: bottom.number, type: .constant), spacing: spacing, height: ItemSize(number: 0, type: .equal))
+                return
+            }
+            for item in items {
+                item.viewHeight = height.number
+            }
+            setupYOrigin(items: items, itemsHeightSum: itemsHeightSum, align: align, spacing: spacing, topOffset: top.number, bottomOffset: bottom.number)
+            
         case .minimum:
-            minimumGeneralHeight = height.number
-            calculateGeneralHeightBasedViewsHeight(items: items, spacing: spacing)
-            calculateVerticalIndent()
+            var itemsHeightSum: Float = 0
+            for item in items {
+                if item.viewHeight == nil {
+                    // у всех вьюшек должна быть задана высота
+                    return
+                }
+                if item.viewHeight! < height.number {
+                    // если высота не удовлетворяет условию
+                    item.viewHeight! = height.number
+                }
+                itemsHeightSum += item.viewHeight!
+            }
+            setupYOrigin(items: items, itemsHeightSum: itemsHeightSum, align: align, spacing: spacing, topOffset: top.number, bottomOffset: bottom.number)
+
         case .equal:
-            calculateIfEqualHeight(items: items, spacing: spacing)
-            calculateVerticalIndent()
+            let itemsHeightSum = viewHeight! - top.number - bottom.number - spacingSum
+            let itemHeight = itemsHeightSum / Float(items.count)
+            for item in items {
+                item.viewHeight = itemHeight
+            }
+            setupYOrigin(items: items, itemsHeightSum: itemsHeightSum, align: align, spacing: spacing, topOffset: top.number, bottomOffset: bottom.number)
         }
-        verticalSpacing = spacing
+    }
+    private func setupYOrigin(items: [LayoutView], itemsHeightSum: Float, align: AlignGroup, spacing: Float, topOffset: Float, bottomOffset: Float) {
+        let spacingSum = Float(items.count - 1) * spacing
+        let totalHeight = itemsHeightSum + spacingSum + topOffset + bottomOffset
+        
+        let start: Float
+        switch align {
+        case .minEdge:
+            start = topOffset
+        case .fill:
+            fallthrough // также как и .center
+        case .center:
+            start = topOffset + (viewHeight! - totalHeight) / 2
+        case .maxEdge:
+            start = viewHeight! - itemsHeightSum - spacingSum - bottomOffset
+        }
+        var nextOffset: Float = start
+        for item in items {
+            item.yOrigin = nextOffset
+            nextOffset += item.viewHeight! + spacing
+        }
     }
 
     
     ///считает отступы слева и справа, опираясь на заданные значения
     func arrangeHorizontaly(items: [LayoutView], left: EdgeOffset, right: EdgeOffset, spacing: Float, width: ItemSize){
-        switch left.type {
-        case .constant:
-            leftIndent = left.number
-        case .minimum:
-            minimumLeftIndent = left.number
+        var align: AlignGroup
+        if left.type == .minimum && right.type == .minimum {
+            align = .center
+        } else if left.type == .minimum {
+            align = .maxEdge
+        } else if right.type == .minimum {
+            align = .minEdge
+        } else {
+            align = .fill
         }
         
-        switch right.type {
-        case .constant:
-            rightIndent = right.number
-        case .minimum:
-            minimumRightIndent = right.number
+        if align != .minEdge && viewWidth == nil {
+            // мы не можем посчитать левый отступ и размеры если нет ширина текущей вьюшки
+            return
         }
         
+        let spacingSum = Float(items.count - 1) * spacing
         switch width.type {
         case .constant:
-            generalWidth = width.number
-            calculateGeneralWidthBasedViewsWidth(items: items, spacing: spacing, from: "constant")
-            calculateHorizontalIndent()
+            let itemsWidthSum = Float(items.count) * width.number
+            let totalWidth = itemsWidthSum + spacingSum + left.number + right.number
+            if align != .fill && viewWidth != nil && viewWidth! < totalWidth {
+                // сумарная ширина больше текущей вьюшки, поэтому мы расположим группу как .fill
+                arrangeHorizontaly(items: items, left: EdgeOffset(number: left.number, type: .constant), right: EdgeOffset(number: right.number, type: .constant), spacing: spacing, width: ItemSize(number: 0, type: .equal))
+                return
+            }
+            for item in items {
+                item.viewWidth = width.number
+            }
+            setupXOrigin(items: items, itemsWidthSum: itemsWidthSum, align: align, spacing: spacing, leftOffset: left.number, rightOffset: right.number)
+            
         case .minimum:
-            minimumGeneralWidth = width.number
-            calculateGeneralWidthBasedViewsWidth(items: items, spacing: spacing)
-            calculateHorizontalIndent()
+            var itemsWidthSum: Float = 0
+            for item in items {
+                if item.viewWidth == nil {
+                    // у всех вьюшек должна быть задана ширина
+                    return
+                }
+                if item.viewWidth! < width.number {
+                    // если ширина не удовлетворяет условию
+                    item.viewWidth! = width.number
+                }
+                itemsWidthSum += item.viewWidth!
+            }
+            setupXOrigin(items: items, itemsWidthSum: itemsWidthSum, align: align, spacing: spacing, leftOffset: left.number, rightOffset: right.number)
+
         case .equal:
-            calculateIfEqualWidth(items: items, spacing: spacing)
-            calculateHorizontalIndent()
+            let itemsWidthSum = viewWidth! - left.number - right.number - spacingSum
+            let itemWidth = itemsWidthSum / Float(items.count)
+            for item in items {
+                item.viewWidth = itemWidth
+            }
+            setupXOrigin(items: items, itemsWidthSum: itemsWidthSum, align: align, spacing: spacing, leftOffset: left.number, rightOffset: right.number)
         }
+    }
+    private func setupXOrigin(items: [LayoutView], itemsWidthSum: Float, align: AlignGroup, spacing: Float, leftOffset: Float, rightOffset: Float) {
+        let spacingSum = Float(items.count - 1) * spacing
+        let totalWidth = itemsWidthSum + spacingSum + leftOffset + rightOffset
         
-        horizontalSpacing = spacing
-    }
-    
-    ///(aux) считает generalHeight, а также задает каждой view одинаковое значение высоты
-    func calculateIfEqualHeight(items: [LayoutView], spacing: Float){
-        if self.viewHeight != nil{
-            if topIndent != nil{
-                if bottomIndent != nil{
-                    generalHeight = self.viewHeight! - topIndent! - bottomIndent!
-                }else{
-                    generalHeight = self.viewHeight! - topIndent! - minimumBottomIndent!
-                    bottomIndent = minimumBottomIndent
-                }
-            }else{
-                if bottomIndent != nil{
-                    generalHeight = self.viewHeight! - bottomIndent! - minimumTopIndent!
-                    topIndent = minimumTopIndent
-                }else{
-                    generalHeight = self.viewHeight! - minimumBottomIndent! - minimumTopIndent!
-                    bottomIndent = minimumBottomIndent
-                    topIndent = minimumTopIndent
-                }
-            }
-            let numberOfItems = Float(items.count)
-            let numbersOfSpacing = numberOfItems - 1
-            let generalHeightWithoutSpacing = generalHeight! - numbersOfSpacing * spacing
-            let heightOfSingleView = generalHeightWithoutSpacing / numberOfItems
-            if generalHeightWithoutSpacing > 0{
-                for item in items{
-                    item.setHeight(size: SizeRuleSide(number: heightOfSingleView,type: .constant), from: "equal")
-                }
-            }
+        let start: Float
+        switch align {
+        case .minEdge:
+            start = leftOffset
+        case .fill:
+            fallthrough // также как и .center
+        case .center:
+            start = leftOffset + (viewWidth! - totalWidth) / 2
+        case .maxEdge:
+            start = viewWidth! - itemsWidthSum - spacingSum - rightOffset
+        }
+        var nextOffset: Float = start
+        for item in items {
+            item.xOrigin = nextOffset
+            nextOffset += item.viewWidth! + spacing
         }
     }
 
-    
-    ///(aux) считает generalWidth, а также задает каждой view одинаковое значение ширины
-    func calculateIfEqualWidth(items: [LayoutView], spacing: Float){
-        if self.viewWidth != nil{
-            if leftIndent != nil{
-                if rightIndent != nil{
-                    generalWidth = self.viewWidth! - leftIndent! - rightIndent!
-                }else{
-                    generalWidth = self.viewWidth! - leftIndent! - minimumRightIndent!     //один из путей выхода из проблемы распределения размеров
-                    rightIndent = minimumRightIndent
-                }
-            }else{
-                if rightIndent != nil{
-                    generalWidth = self.viewWidth! - rightIndent! - minimumLeftIndent!
-                    leftIndent = minimumLeftIndent
-                }else{
-                    generalWidth = self.viewWidth! - minimumRightIndent! - minimumLeftIndent!
-                    rightIndent = minimumRightIndent
-                    leftIndent = minimumLeftIndent
-                }
-            }
-            let numberOfItems = Float(items.count)
-            let numbersOfSpacing = numberOfItems - 1
-            let generalWidthWithoutSpacing = generalWidth! - numbersOfSpacing * spacing
-            let widthOfSingleView = generalWidthWithoutSpacing / numberOfItems
-            if generalWidthWithoutSpacing > 0{
-                for item in items{
-                    item.setWidth(size: SizeRuleSide(number: widthOfSingleView,type: .constant), from: "equal")
-                }
-            }
-        }
-    }
-    
-    ///(aux) считает generalHeight, исходя из высоты каждой отдельной view и  в случае, когда generalHeight указана константой и не сходится с посчитанным значением,  generalHeight обнуляется
-    func calculateGeneralHeightBasedViewsHeight(items: [LayoutView], spacing: Float, from: String = ""){
-        var heightOfAllView: Float = 0
-        var counter: Int = 0
-        for item in items{
-            if item.viewHeight != nil{
-                heightOfAllView += item.viewHeight!
-                counter += 1
-            }
-        }
-        if counter == items.count{
-            let supposedGeneralHeight = heightOfAllView + (Float(items.count) - 1) * spacing
-            if from == "constant"{
-                if supposedGeneralHeight != generalHeight{
-                    generalHeight = nil
-                }
-            }else{
-                if supposedGeneralHeight >= minimumGeneralHeight!{
-                    generalHeight = supposedGeneralHeight
-                }
-            }
-        }
-    }
-    
-
-    ///(aux) считает generalWidth, исходя из ширины каждой отдельной view и  в случае, когда generalWidth указана константой и не сходится с посчитанным значением,  generalWidth обнуляется
-    func calculateGeneralWidthBasedViewsWidth(items: [LayoutView], spacing: Float, from: String = ""){
-        var widthOfAllView: Float = 0
-        var counter: Int = 0
-        for item in items{
-            if item.viewWidth != nil{
-                widthOfAllView += item.viewWidth!
-                counter += 1
-            }
-        }
-        if counter == items.count{
-            let supposedGeneralWidth = widthOfAllView + (Float(items.count) - 1) * spacing
-            if from == "constant"{
-                if supposedGeneralWidth != generalWidth{
-                    generalWidth = nil
-                }
-            }else{
-                if supposedGeneralWidth >= minimumGeneralWidth!{
-                    generalWidth = supposedGeneralWidth
-                }
-            }
-        }
-    }
-    
-    ///(aux)считает отсупы сверху и сниза, исходя из generalHeight
-    func calculateVerticalIndent(){
-        if generalHeight != nil{
-            if self.viewHeight != nil{
-                let heightOfIndent = self.viewHeight! - generalHeight!        //Ширина отступов (слева и справа вместе)
-                // зададим значения отступам, зная ширину всего ряда view
-                if topIndent != nil{
-                    if bottomIndent != nil{
-                        if bottomIndent! + topIndent! + generalHeight! != self.viewHeight{
-                            bottomIndent  = nil
-                            topIndent   = nil
-                            generalHeight = nil
-                        }
-                    }else{
-                        let supposedBottomIndent = self.viewHeight! - topIndent! - generalHeight!
-                        if supposedBottomIndent >= 0 && minimumBottomIndent! <= supposedBottomIndent{
-                            bottomIndent = supposedBottomIndent
-                        }else{
-                            topIndent = nil
-                            generalHeight = nil
-                        }
-                    }
-                }else{
-                    if bottomIndent == nil{
-                        if heightOfIndent >= minimumTopIndent! + minimumBottomIndent!{
-                            let auxIndent = heightOfIndent - minimumTopIndent! - minimumBottomIndent! / 2
-                            topIndent = auxIndent + minimumTopIndent!
-                            bottomIndent = auxIndent + minimumBottomIndent!
-                        }else{
-                            generalHeight = nil
-                        }
-                    }else{
-                        let supposedTopIndent = self.viewHeight! - bottomIndent! - generalHeight!
-                        if supposedTopIndent >= 0 && minimumTopIndent! <= supposedTopIndent{
-                            topIndent = supposedTopIndent
-                        }else{
-                            bottomIndent = nil
-                            generalHeight = nil
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-
-    ///(aux)считает отсупы слева и справа, исходя из generalWidth
-    func calculateHorizontalIndent(){
-        if generalWidth != nil{
-            if self.viewWidth != nil{
-                let widthOfIndent = self.viewWidth! - generalWidth!        //Ширина отступов (слева и справа вместе)
-                // зададим значения отступам, зная ширину всего ряда view
-                if leftIndent != nil{
-                    if rightIndent != nil{
-                        if rightIndent! + leftIndent! + generalWidth! != self.viewWidth{
-                            rightIndent  = nil
-                            leftIndent   = nil
-                            generalWidth = nil
-                        }
-                    }else{
-                        let supposedRightIndent = self.viewWidth! - leftIndent! - generalWidth!
-                        if supposedRightIndent >= 0 && minimumRightIndent! <= supposedRightIndent{
-                            rightIndent = supposedRightIndent
-                        }else{
-                            leftIndent = nil
-                            generalWidth = nil
-                        }
-                    }
-                }else{
-                    if rightIndent == nil{
-                        if widthOfIndent >= minimumLeftIndent! + minimumRightIndent!{
-                            let auxIndent = widthOfIndent - minimumLeftIndent! - minimumRightIndent! / 2
-                            leftIndent = auxIndent + minimumLeftIndent!
-                            rightIndent = auxIndent + minimumRightIndent!
-                        }else{
-                            generalWidth = nil
-                        }
-                    }else{
-                        let supposedLeftIndent = self.viewWidth! - rightIndent! - generalWidth!
-                        if supposedLeftIndent >= 0 && minimumLeftIndent! <= supposedLeftIndent{
-                            leftIndent = supposedLeftIndent
-                        }else{
-                            rightIndent = nil
-                            generalWidth = nil
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    ///(aux) задает значения координат x и  y для subview на основе отступов от краев и размеров
-    func setOrigin(){
-        var number: Float = 0
-        var previousViewWidth: Float? = 0
-        var previousViewHeight: Float? = 0
-        for view in self.superview.subviews{
-            if previousViewWidth != nil && view.leftIndent != nil{
-                view.xOrigin = view.leftIndent! + (view.horizontalSpacing! + previousViewWidth!) * number
-            }
-            if previousViewHeight != nil && topIndent != nil{
-                view.yOrigin = view.topIndent! + (view.verticalSpacing! + previousViewHeight!) * number
-            }
-            previousViewWidth = view.viewWidth
-            previousViewHeight = view.viewHeight
-            number += 1
-        }
-    }
-   
-    
     
     func calculateLayout(isRootView: Bool = true) -> CalculationResult{
 
         let oldProgress = self.progress
         
         self.setHeight(size: self.sizeRule.height)
-        self.setWidth(size: self.sizeRule.height)
+        self.setWidth(size: self.sizeRule.width)
         
         
         for rule in self.horizontalRules{
@@ -462,17 +320,15 @@ class LayoutView: Decodable {
         }
 
                                         
-        if isRootView{
+        if isRootView {
             if self.viewWidth == nil || self.viewHeight == nil{
                 fatalError("root view size not set")
             }
-            self.xOrigin = 0
-            self.yOrigin = 0
-        }else{
-            self.setOrigin()
+            xOrigin = 0
+            yOrigin = 0
         }
         
-        var resultStatus = CalculationResult.fulfilled
+        var resultStatus = CalculationResult(fulfulled: true, changed: false)
         
         // корректируем статус в зависимости от статуса чилдов
         for child in subviews {
@@ -480,25 +336,18 @@ class LayoutView: Decodable {
             let childStatus = child.calculateLayout(isRootView: false)
             resultStatus = combineResults(main: resultStatus, added: childStatus)
         }
-                            
-        let currentViewStatus: CalculationResult
+        
         let newProgress = self.progress
-        if newProgress == 4 {
-            // все параметры найдены
-            currentViewStatus = .fulfilled
-        } else if newProgress == oldProgress {
-            // ничего не поменялось
-            currentViewStatus = .unchanged
-        } else {
-            // что-то поменялось
-            currentViewStatus = .found
-        }
+        let currentViewStatus = CalculationResult(
+            fulfulled: newProgress == 4,
+            changed: newProgress != oldProgress
+        )
         resultStatus = combineResults(main: resultStatus, added: currentViewStatus)
         
-        while resultStatus == .found{
+        while resultStatus.changed {
             resultStatus = calculateLayout(isRootView: isRootView)
         }
-        if resultStatus == .unchanged && isRootView{
+        if !resultStatus.fulfulled && isRootView{
             fatalError("not enough values")
         }
         
@@ -506,24 +355,16 @@ class LayoutView: Decodable {
     }
     
 
-    enum CalculationResult {
-        case fulfilled // frame посчитан полностью для view и всех ее дочерних view
-        case unchanged // еще остались непосчитанные значения и за время прохода ничего не изменилось
-        case found // для view или для одного из его потомков найдено хотябы одно значение для frame, но не все
+    struct CalculationResult {
+        var fulfulled: Bool // true если все параметры вью и дочерних вью найдены
+        var changed: Bool // true если какой-то из параметров вью или дочерних вью поменялся
     }
 
     func combineResults(main: CalculationResult, added: CalculationResult) -> CalculationResult {
-        switch added {
-        case .fulfilled:
-            break
-        case .unchanged:
-            if main != .found {
-                return .unchanged
-            }
-        case .found:
-            return .found
-        }
-        return main
+        return CalculationResult(
+            fulfulled: main.fulfulled && added.fulfulled,
+            changed: main.changed || added.changed
+        )
     }
     
     func setFrame(){
